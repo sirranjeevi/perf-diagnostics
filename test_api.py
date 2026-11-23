@@ -28,3 +28,9 @@ def test_alerts_returns_a_list():
     response = client.get("/alerts")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+def test_analyze_unknown_run_returns_error():
+    # A run name that doesn't exist should give an error, not a crash.
+    # 503 means the model hasn't been trained yet; 404 means the run is missing.
+    response = client.get("/analyze", params={"run_id": "does-not-exist"})
+    assert response.status_code in (404, 503)
