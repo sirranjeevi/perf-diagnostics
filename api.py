@@ -1,13 +1,14 @@
 """REST API that exposes health, the latest reading, and saved alerts."""
 
-from fastapi import FastAPI  # The web framework that defines the endpoints
-
-import db  # Our database module from db.py
-from fastapi.responses import HTMLResponse   # Tells the browser the reply is a web page, not plain text
-import dashboard                             # Builds the dashboard page from dashboard.py
+from collections import Counter                 # Counts how many seconds got each label
+from fastapi import FastAPI, HTTPException      # FastAPI is the app; HTTPException returns clear errors
+from fastapi.responses import HTMLResponse      # Lets /dashboard return a web page
+import joblib                                   # Loads the saved model file
+import dashboard                                # Builds the dashboard page
+import db                                       # Database connection
+from features import add_features, load_run     # Reuses the feature code from features.py
 
 app = FastAPI(title="Performance Diagnostics API")  # Creates the application object
-
 
 @app.get("/health")  # Runs this function when someone requests /health
 def health():
