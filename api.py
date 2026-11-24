@@ -3,6 +3,8 @@
 from fastapi import FastAPI  # The web framework that defines the endpoints
 
 import db  # Our database module from db.py
+from fastapi.responses import HTMLResponse   # Tells the browser the reply is a web page, not plain text
+import dashboard                             # Builds the dashboard page from dashboard.py
 
 app = FastAPI(title="Performance Diagnostics API")  # Creates the application object
 
@@ -60,3 +62,48 @@ def list_alerts():
     # Names for each position in the tuple, so the JSON has labelled fields
     keys = ["run_id", "ts", "metric", "value", "threshold", "seconds", "message", "top_processes"]
     return [dict(zip(keys, row)) for row in rows]  # Turns each tuple into a dictionary
+
+@app.get("/analyze")  # Requests look like: /analyze?run_id=cpu-01-1794839838
+def analyze(run_id: str):
+    # Load the trained model. If it doesn't exist yet, tell the caller clearly.
+    try:
+        saved = joblib.load("model.joblib")
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="Model not trained yet. Run train_classifier.py first.")
+
+    # Read the requested run from the database
+    conn = db.connect()
+    try:
+        df = load_run(conn, run_id)
+    finally:
+        conn.close()
+
+    if df.empty:
+        raise HTTPException(status_code=404, detail=f"No run named {run_id}")
+
+    # Build the same rolling features the model was trained on
+    feats = add_features(df)
+    if feats.empty:
+        raise HTTPException(status_code=400, detail="Run is too short: it needs at least 5 readings")
+
+    # Predict one label per second, using the columns in the same order as training
+    preds = saved["model"].predict(feats[saved["columns"]])
+    counts = Counter(str(p) for p in preds)     # How many seconds got each label
+
+    # The workload is the label that appeared most often
+    best_label, _ = counts.most_common(1)[0]
+
+    return {
+        "run_id": run_id,
+        "predicted_workload": best_label,
+        "seconds_per_label": dict(counts),
+    }
+
+@app.get("/dashboard", response_class=HTMLResponse)  # Open http://127.0.0.1:8000/dashboard in a browser
+def dashboard_page(run_id: str | None = None):
+    # run_id is optional: without it, the newest run is shown
+    conn = db.connect()
+    try:
+        return dashboard.build_page(conn, run_id)  # Returns the full HTML page
+    finally:
+        conn.close()  # Always close the database file
